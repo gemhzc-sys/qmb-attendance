@@ -22,6 +22,8 @@ button.ghost{background:transparent;color:var(--tx);border:1px solid var(--bd)}
 button:focus-visible,input:focus-visible,.pick:focus-within{outline:3px solid var(--ac);outline-offset:2px}
 .row{display:flex;gap:10px}
 .row>*{flex:1}
+.grid4{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tag{color:var(--bad);font-weight:600;margin-left:6px}
 .clock{font-size:46px;font-weight:700;letter-spacing:-1px;line-height:1.1}
 .pick{display:block;border:2px dashed var(--bd);border-radius:12px;padding:14px;text-align:center;color:var(--mu);cursor:pointer;margin-bottom:12px}
 .pick input{display:none}
@@ -67,11 +69,17 @@ li a{color:var(--ac);cursor:pointer;text-decoration:underline}
         <input id="file" type="file" accept="image/*" capture="user">
       </label>
       <img id="prev" alt="自拍预览" hidden>
-      <div class="row">
-        <button id="bIn">上班打卡</button>
-        <button id="bOut">下班打卡</button>
+      <div class="grid4">
+        <button id="b_am_in"></button>
+        <button id="b_am_out"></button>
+        <button id="b_pm_in"></button>
+        <button id="b_pm_out"></button>
       </div>
       <p id="msg"></p>
+    </div>
+    <div class="card" id="alertCard" hidden>
+      <strong style="color:var(--bad)">迟到 / 早退提醒（近 7 天）</strong>
+      <ul id="alerts"></ul>
     </div>
     <div class="card">
       <strong>今日记录</strong>
@@ -97,6 +105,9 @@ const tz = 'Asia/Jakarta';
 const today = () => new Date().toLocaleDateString('en-CA', {timeZone: tz});
 const hm = d => new Date(d).toLocaleTimeString('en-GB', {timeZone: tz, hour: '2-digit', minute: '2-digit'});
 let me = null, photo = null, busy = false, done = {};
+const KIND_LIST = ['am_in', 'am_out', 'pm_in', 'pm_out'];
+const KINDS = {am_in: '上午上班', am_out: '上午下班', pm_in: '下午上班', pm_out: '下午下班', in: '上班', out: '下班'};
+const FLAGS = {late: '迟到', early: '早退'};
 
 function msg(t, cls) { const e = $('msg'); e.textContent = t || ''; e.className = cls || ''; }
 
@@ -157,16 +168,35 @@ async function init() {
 }
 
 function setBtns(off) {
-  $('bIn').disabled = off || !!done.in;
-  $('bOut').disabled = off || !!done.out;
-  $('bIn').textContent = done.in ? '上班已打卡' : '上班打卡';
-  $('bOut').textContent = done.out ? '下班已打卡' : '下班打卡';
+  KIND_LIST.forEach(k => {
+    const b = $('b_' + k);
+    b.disabled = off || !!done[k];
+    b.textContent = KINDS[k] + (done[k] ? ' ✓' : '');
+  });
+}
+
+async function loadAlerts() {
+  const card = $('alertCard');
+  if (!me || me.role !== 'admin') { card.hidden = true; return; }
+  const d = new Date(Date.now() - 6 * 864e5).toLocaleDateString('en-CA', {timeZone: tz});
+  const {data: rows} = await sb.from('attendance')
+    .select('user_id,kind,flag,work_date,created_at')
+    .not('flag', 'is', null).gte('work_date', d).order('created_at', {ascending: false});
+  const {data: ps} = await sb.from('profiles').select('id,full_name');
+  const names = Object.fromEntries((ps || []).map(p => [p.id, p.full_name]));
+  const ul = $('alerts'); ul.textContent = '';
+  card.hidden = !(rows && rows.length);
+  (rows || []).forEach(r => {
+    const li = document.createElement('li');
+    li.textContent = r.work_date.slice(5) + ' ' + (names[r.user_id] || '员工') + ' ' + (KINDS[r.kind] || r.kind) + ' ' + hm(r.created_at) + ' ' + (FLAGS[r.flag] || r.flag);
+    ul.append(li);
+  });
 }
 
 async function loadToday() {
   if (!me) return;
   const {data: rows, error} = await sb.from('attendance')
-    .select('user_id,kind,created_at,distance_m,photo_path')
+    .select('user_id,kind,flag,created_at,distance_m,photo_path')
     .eq('work_date', today()).order('created_at');
   if (error) { msg('读取记录失败：' + error.message, 'bad'); return; }
   const {data: ps} = await sb.from('profiles').select('id,full_name');
@@ -174,12 +204,14 @@ async function loadToday() {
   done = {};
   rows.filter(r => r.user_id === me.id).forEach(r => done[r.kind] = true);
   setBtns(busy);
+  loadAlerts();
   const ul = $('list'); ul.textContent = '';
   if (!rows.length) { const li = document.createElement('li'); li.textContent = '今天还没有打卡记录'; ul.append(li); return; }
   rows.forEach(r => {
     const li = document.createElement('li');
     const l = document.createElement('span');
-    l.textContent = (names[r.user_id] || '员工') + ' ' + (r.kind === 'in' ? '上班' : '下班') + ' ' + hm(r.created_at) + '（' + Math.round(r.distance_m) + ' 米）';
+    l.textContent = (names[r.user_id] || '员工') + ' ' + (KINDS[r.kind] || r.kind) + ' ' + hm(r.created_at) + '（' + Math.round(r.distance_m) + ' 米）';
+    if (r.flag) { const t = document.createElement('span'); t.className = 'tag'; t.textContent = FLAGS[r.flag] || r.flag; l.append(t); }
     const a = document.createElement('a'); a.textContent = '照片'; a.tabIndex = 0;
     a.onclick = async () => {
       const {data, error} = await sb.storage.from('attendance-selfies').createSignedUrl(r.photo_path, 120);
@@ -226,6 +258,7 @@ function friendly(e) {
   const m = (e && e.message) || String(e);
   if (/Session replaced/i.test(m)) { leave('此账号已在另一台设备登录，请重新登录'); return '账号已在另一台设备登录'; }
   if (/duplicate key/i.test(m)) return '今天已经打过这个卡了';
+  if (/Invalid attendance type/i.test(m)) return '网页版本过旧，请刷新页面后重试';
   if (/Outside allowed radius/i.test(m)) return '不在打卡范围内';
   if (/accuracy too low/i.test(m)) return 'GPS 精度不足，请到空旷处重试';
   return m;
@@ -248,7 +281,7 @@ async function punch(kind) {
     if (ue) throw ue;
     const {error: se} = await sb.rpc('submit_attendance', {p_kind: kind, p_lat: c.latitude, p_lng: c.longitude, p_accuracy: c.accuracy, p_photo_path: path});
     if (se) throw se;
-    msg((kind === 'in' ? '上班' : '下班') + '打卡成功，距离公司 ' + Math.round(chk.distance_m) + ' 米', 'ok');
+    msg(KINDS[kind] + '打卡成功，距离公司 ' + Math.round(chk.distance_m) + ' 米', 'ok');
     photo = null; $('prev').hidden = true; $('file').value = ''; $('pickTxt').textContent = '点此拍自拍照';
   } catch (e) {
     msg(friendly(e), 'bad');
@@ -256,8 +289,7 @@ async function punch(kind) {
     busy = false; await loadToday();
   }
 }
-$('bIn').onclick = () => punch('in');
-$('bOut').onclick = () => punch('out');
+KIND_LIST.forEach(k => { $('b_' + k).onclick = () => punch(k); });
 
 init();
 </script>
