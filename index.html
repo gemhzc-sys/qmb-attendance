@@ -53,8 +53,10 @@ li a{color:var(--ac);cursor:pointer;text-decoration:underline}
   </section>
 
   <section id="app" hidden>
-    <h1 id="who"></h1>
-    <p class="sub" id="date"></p>
+    <div class="row" style="align-items:flex-start;margin-bottom:16px">
+      <div><h1 id="who"></h1><p class="sub" id="date" style="margin:0"></p></div>
+      <button class="ghost" id="logout" style="width:auto;flex:none;padding:8px 14px">退出</button>
+    </div>
     <div class="card">
       <div class="clock" id="clk">--:--</div>
       <p class="sub" style="margin:4px 0 0">雅加达时间（WIB）</p>
@@ -75,7 +77,13 @@ li a{color:var(--ac);cursor:pointer;text-decoration:underline}
       <strong>今日记录</strong>
       <ul id="list"></ul>
     </div>
-    <button class="ghost" id="logout">退出登录</button>
+    <details class="card">
+      <summary>修改密码</summary>
+      <label for="np">新密码（至少 6 位）</label>
+      <input id="np" type="password" autocomplete="new-password">
+      <p id="perr" class="err"></p>
+      <button id="pwBtn" style="margin-top:12px">保存新密码</button>
+    </details>
   </section>
 </main>
 
@@ -99,16 +107,43 @@ $('loginBtn').onclick = async () => {
   $('lerr').textContent = '';
   const {error} = await sb.auth.signInWithPassword({email: $('em').value.trim(), password: $('pw').value});
   if (error) { $('lerr').textContent = '登录失败：邮箱或密码不正确'; return; }
+  const {error: ce} = await sb.rpc('claim_session');
+  if (ce) { $('lerr').textContent = '登录失败：' + ce.message; return; }
   init();
 };
 $('pw').onkeydown = e => { if (e.key === 'Enter') $('loginBtn').click(); };
-$('logout').onclick = async () => { await sb.auth.signOut(); me = null; init(); };
+async function leave(note) {
+  try { await sb.auth.signOut({scope: 'local'}); } catch (e) {}
+  me = null; photo = null;
+  $('auth').hidden = false; $('app').hidden = true;
+  $('lerr').textContent = note || '';
+}
+$('logout').onclick = () => leave('');
+
+$('pwBtn').onclick = async () => {
+  const pw = $('np').value;
+  if (pw.length < 6) { $('perr').textContent = '密码至少 6 位'; return; }
+  const {error} = await sb.auth.updateUser({password: pw});
+  $('perr').style.color = error ? '' : 'var(--ok)';
+  $('perr').textContent = error ? '修改失败：' + error.message : '密码已修改';
+  if (!error) $('np').value = '';
+};
+
+async function stillMine() {
+  const {data, error} = await sb.rpc('session_ok');
+  if (error) return true;
+  if (data === false) { await leave('此账号已在另一台设备登录，请重新登录'); return false; }
+  return true;
+}
+setInterval(() => { if (me && !busy) stillMine(); }, 30000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && me) stillMine(); });
 
 async function init() {
   const {data: {session}} = await sb.auth.getSession();
   $('auth').hidden = !!session;
   $('app').hidden = !session;
   if (!session) return;
+  if (!(await stillMine())) return;
   const {data: p} = await sb.from('profiles').select('full_name,role,active').eq('id', session.user.id).maybeSingle();
   if (!p || !p.active) {
     $('who').textContent = '账号未开通';
@@ -129,6 +164,7 @@ function setBtns(off) {
 }
 
 async function loadToday() {
+  if (!me) return;
   const {data: rows, error} = await sb.from('attendance')
     .select('user_id,kind,created_at,distance_m,photo_path')
     .eq('work_date', today()).order('created_at');
@@ -188,6 +224,7 @@ function gps() {
 
 function friendly(e) {
   const m = (e && e.message) || String(e);
+  if (/Session replaced/i.test(m)) { leave('此账号已在另一台设备登录，请重新登录'); return '账号已在另一台设备登录'; }
   if (/duplicate key/i.test(m)) return '今天已经打过这个卡了';
   if (/Outside allowed radius/i.test(m)) return '不在打卡范围内';
   if (/accuracy too low/i.test(m)) return 'GPS 精度不足，请到空旷处重试';
