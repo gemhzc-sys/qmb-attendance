@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>QMB 打卡</title>
+<title>QMB 打卡 / Absensi</title>
 <style>
 :root{--bg:#eef1ea;--card:#fbfcf8;--tx:#1b2a22;--mu:#5f6f66;--ac:#1f6f4a;--on:#fff;--bd:#cfd8cc;--bad:#a8261c;--ok:#1f6f4a}
 @media(prefers-color-scheme:dark){:root{--bg:#0f1511;--card:#18201b;--tx:#e8efe9;--mu:#8fa196;--ac:#4cc08a;--on:#08140d;--bd:#2b362e;--bad:#ff8b80;--ok:#4cc08a}}
@@ -22,7 +22,11 @@ button.ghost{background:transparent;color:var(--tx);border:1px solid var(--bd)}
 button:focus-visible,input:focus-visible,.pick:focus-within{outline:3px solid var(--ac);outline-offset:2px}
 .row{display:flex;gap:10px}
 .row>*{flex:1}
+.tools{display:flex;gap:8px;flex:none}
+.tools button{width:auto;padding:8px 12px}
 .grid4{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.grid4 button{display:flex;flex-direction:column;gap:2px;line-height:1.25}
+.grid4 small{font-weight:400;font-size:12px;opacity:.85}
 .tag{color:var(--bad);font-weight:600;margin-left:6px}
 .clock{font-size:46px;font-weight:700;letter-spacing:-1px;line-height:1.1}
 .pick{display:block;border:2px dashed var(--bd);border-radius:12px;padding:14px;text-align:center;color:var(--mu);cursor:pointer;margin-bottom:12px}
@@ -42,33 +46,38 @@ li a{color:var(--ac);cursor:pointer;text-decoration:underline}
 <body>
 <main>
   <section id="auth" hidden>
-    <h1>QMB 员工打卡</h1>
-    <p class="sub">用公司给你的账号登录</p>
+    <div class="row" style="align-items:flex-start;margin-bottom:16px">
+      <div><h1 data-i="title"></h1><p class="sub" style="margin:0" data-i="loginSub"></p></div>
+      <div class="tools"><button class="ghost lgbtn"></button></div>
+    </div>
     <div class="card">
-      <label for="em">邮箱</label>
+      <label for="em" data-i="email"></label>
       <input id="em" type="email" autocomplete="username">
-      <label for="pw">密码</label>
+      <label for="pw" data-i="password"></label>
       <input id="pw" type="password" autocomplete="current-password">
       <p id="lerr" class="err"></p>
-      <button id="loginBtn" style="margin-top:12px">登录</button>
+      <button id="loginBtn" style="margin-top:12px" data-i="login"></button>
     </div>
   </section>
 
   <section id="app" hidden>
     <div class="row" style="align-items:flex-start;margin-bottom:16px">
       <div><h1 id="who"></h1><p class="sub" id="date" style="margin:0"></p></div>
-      <button class="ghost" id="logout" style="width:auto;flex:none;padding:8px 14px">退出</button>
+      <div class="tools">
+        <button class="ghost lgbtn"></button>
+        <button class="ghost" id="logout" data-i="logout"></button>
+      </div>
     </div>
     <div class="card">
       <div class="clock" id="clk">--:--</div>
-      <p class="sub" style="margin:4px 0 0">雅加达时间（WIB）</p>
+      <p class="sub" style="margin:4px 0 0" data-i="tz"></p>
     </div>
     <div class="card">
       <label class="pick" for="file" style="margin-top:0">
-        <span id="pickTxt">点此拍自拍照</span>
+        <span id="pickTxt"></span>
         <input id="file" type="file" accept="image/*" capture="user">
       </label>
-      <img id="prev" alt="自拍预览" hidden>
+      <img id="prev" alt="selfie" hidden>
       <div class="grid4">
         <button id="b_am_in"></button>
         <button id="b_am_out"></button>
@@ -78,19 +87,19 @@ li a{color:var(--ac);cursor:pointer;text-decoration:underline}
       <p id="msg"></p>
     </div>
     <div class="card" id="alertCard" hidden>
-      <strong style="color:var(--bad)">迟到 / 早退提醒（近 7 天）</strong>
+      <strong style="color:var(--bad)" data-i="alertTitle"></strong>
       <ul id="alerts"></ul>
     </div>
     <div class="card">
-      <strong>今日记录</strong>
+      <strong data-i="today"></strong>
       <ul id="list"></ul>
     </div>
     <details class="card">
-      <summary>修改密码</summary>
-      <label for="np">新密码（至少 6 位）</label>
+      <summary data-i="chgPw"></summary>
+      <label for="np" data-i="newPw"></label>
       <input id="np" type="password" autocomplete="new-password">
       <p id="perr" class="err"></p>
-      <button id="pwBtn" style="margin-top:12px">保存新密码</button>
+      <button id="pwBtn" style="margin-top:12px" data-i="savePw"></button>
     </details>
   </section>
 </main>
@@ -105,11 +114,73 @@ const tz = 'Asia/Jakarta';
 const today = () => new Date().toLocaleDateString('en-CA', {timeZone: tz});
 const hm = d => new Date(d).toLocaleTimeString('en-GB', {timeZone: tz, hour: '2-digit', minute: '2-digit'});
 let me = null, photo = null, busy = false, done = {};
-const KIND_LIST = ['am_in', 'am_out', 'pm_in', 'pm_out'];
-const KINDS = {am_in: '上午上班', am_out: '上午下班', pm_in: '下午上班', pm_out: '下午下班', in: '上班', out: '下班'};
-const FLAGS = {late: '迟到', early: '早退'};
 
-function msg(t, cls) { const e = $('msg'); e.textContent = t || ''; e.className = cls || ''; }
+/* ---------- 中文 / Bahasa Indonesia ---------- */
+const KIND_LIST = ['am_in', 'am_out', 'pm_in', 'pm_out'];
+const KZ = {am_in: '上午上班', am_out: '上午下班', pm_in: '下午上班', pm_out: '下午下班', in: '上班', out: '下班'};
+const KI = {am_in: 'Masuk pagi', am_out: 'Pulang pagi', pm_in: 'Masuk siang', pm_out: 'Pulang sore', in: 'Masuk', out: 'Pulang'};
+const FZ = {late: '迟到', early: '早退'};
+const FI = {late: 'Terlambat', early: 'Pulang awal'};
+
+const T = {
+  zh: {
+    title: 'QMB 员工打卡', loginSub: '用公司给你的账号登录', email: '邮箱', password: '密码', login: '登录',
+    loginBad: '登录失败：邮箱或密码不正确', loginFail: '登录失败：', logout: '退出', tz: '雅加达时间（WIB）',
+    pick: '点此拍自拍照', repick: '重新拍照', alertTitle: '迟到 / 早退提醒（近 7 天）', today: '今日记录',
+    chgPw: '修改密码', newPw: '新密码（至少 6 位）', savePw: '保存新密码', pwShort: '密码至少 6 位',
+    pwFail: '修改失败：', pwOk: '密码已修改', adminTag: '（管理员）', other: 'Bahasa Indonesia',
+    inactive: '账号未开通', noProfile: '此账号没有员工档案或已停用，请联系管理员。', staff: '员工',
+    none: '今天还没有打卡记录', photoLink: '照片', photoFail: '无法打开照片：', loadFail: '读取记录失败：',
+    photoProc: '照片处理失败', photoRead: '无法读取这张照片',
+    noGeo: '此浏览器不支持定位', geoDenied: '请在浏览器设置里允许此网站获取位置', geoFail: '无法获取定位，请打开手机 GPS 或到空旷处重试',
+    kicked: '此账号已在另一台设备登录，请重新登录', kickedShort: '账号已在另一台设备登录',
+    dup: '今天已经打过这个卡了', oldVer: '网页版本过旧，请刷新页面后重试', outside: '不在打卡范围内', lowAcc: 'GPS 精度不足，请到空旷处重试',
+    needPhoto: '请先拍一张自拍照', locating: '正在定位…', uploading: '正在上传照片…',
+    accBad: a => 'GPS 精度不足（约 ' + a + ' 米），请到空旷处重试',
+    farBad: (d, r) => '不在打卡范围内：距离公司 ' + d + ' 米，允许 ' + r + ' 米内',
+    okMsg: (k, d) => k + '打卡成功，距离公司 ' + d + ' 米', meters: d => '（' + d + ' 米）'
+  },
+  id: {
+    title: 'Absensi Karyawan QMB', loginSub: 'Masuk dengan akun dari perusahaan', email: 'Email', password: 'Kata sandi', login: 'Masuk',
+    loginBad: 'Gagal masuk: email atau kata sandi salah', loginFail: 'Gagal masuk: ', logout: 'Keluar', tz: 'Waktu Jakarta (WIB)',
+    pick: 'Ketuk untuk ambil selfie', repick: 'Ambil ulang', alertTitle: 'Peringatan terlambat / pulang awal (7 hari)', today: 'Catatan hari ini',
+    chgPw: 'Ubah kata sandi', newPw: 'Kata sandi baru (min. 6 karakter)', savePw: 'Simpan kata sandi', pwShort: 'Kata sandi minimal 6 karakter',
+    pwFail: 'Gagal mengubah: ', pwOk: 'Kata sandi berhasil diubah', adminTag: ' (Admin)', other: '中文',
+    inactive: 'Akun belum aktif', noProfile: 'Akun ini tidak punya profil karyawan atau sudah dinonaktifkan. Hubungi admin.', staff: 'Karyawan',
+    none: 'Belum ada catatan hari ini', photoLink: 'Foto', photoFail: 'Tidak bisa membuka foto: ', loadFail: 'Gagal memuat catatan: ',
+    photoProc: 'Gagal memproses foto', photoRead: 'Tidak bisa membaca foto ini',
+    noGeo: 'Browser ini tidak mendukung lokasi', geoDenied: 'Izinkan situs ini mengakses lokasi di pengaturan browser', geoFail: 'Lokasi tidak terbaca. Aktifkan GPS atau pindah ke tempat terbuka.',
+    kicked: 'Akun ini login di perangkat lain, silakan masuk lagi', kickedShort: 'Akun login di perangkat lain',
+    dup: 'Absen ini sudah dilakukan hari ini', oldVer: 'Versi halaman lama, muat ulang lalu coba lagi', outside: 'Di luar area absen', lowAcc: 'Akurasi GPS kurang, coba di tempat terbuka',
+    needPhoto: 'Ambil foto selfie dulu', locating: 'Mencari lokasi…', uploading: 'Mengunggah foto…',
+    accBad: a => 'Akurasi GPS kurang (±' + a + ' m), coba di tempat terbuka',
+    farBad: (d, r) => 'Di luar area absen: jarak ke kantor ' + d + ' m, batas ' + r + ' m',
+    okMsg: (k, d) => 'Absen ' + k + ' berhasil, jarak ke kantor ' + d + ' m', meters: d => ' (' + d + ' m)'
+  }
+};
+let lang = 'id';
+try { lang = localStorage.getItem('lang') || ''; } catch (e) {}
+if (lang !== 'zh' && lang !== 'id') lang = (navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'id';
+const t = (k, ...a) => { const v = T[lang][k]; return typeof v === 'function' ? v(...a) : v; };
+const kindName = k => (lang === 'zh' ? KZ : KI)[k] || k;
+const flagName = f => (lang === 'zh' ? FZ : FI)[f] || f;
+
+function applyLang() {
+  document.documentElement.lang = lang;
+  document.querySelectorAll('[data-i]').forEach(e => { e.textContent = t(e.dataset.i); });
+  document.querySelectorAll('.lgbtn').forEach(b => { b.textContent = t('other'); });
+  $('pickTxt').textContent = t(photo ? 'repick' : 'pick');
+  if (me) $('who').textContent = me.full_name + (me.role === 'admin' ? t('adminTag') : '');
+  setBtns(busy);
+  if (me) loadToday();
+}
+document.querySelectorAll('.lgbtn').forEach(b => b.onclick = () => {
+  lang = lang === 'zh' ? 'id' : 'zh';
+  try { localStorage.setItem('lang', lang); } catch (e) {}
+  applyLang();
+});
+
+function msg(text, cls) { const e = $('msg'); e.textContent = text || ''; e.className = cls || ''; }
 
 function tick() { $('clk').textContent = new Date().toLocaleTimeString('en-GB', {timeZone: tz, hour: '2-digit', minute: '2-digit', second: '2-digit'}); }
 setInterval(tick, 1000); tick();
@@ -117,12 +188,13 @@ setInterval(tick, 1000); tick();
 $('loginBtn').onclick = async () => {
   $('lerr').textContent = '';
   const {error} = await sb.auth.signInWithPassword({email: $('em').value.trim(), password: $('pw').value});
-  if (error) { $('lerr').textContent = '登录失败：邮箱或密码不正确'; return; }
+  if (error) { $('lerr').textContent = t('loginBad'); return; }
   const {error: ce} = await sb.rpc('claim_session');
-  if (ce) { $('lerr').textContent = '登录失败：' + ce.message; return; }
+  if (ce) { $('lerr').textContent = t('loginFail') + ce.message; return; }
   init();
 };
 $('pw').onkeydown = e => { if (e.key === 'Enter') $('loginBtn').click(); };
+
 async function leave(note) {
   try { await sb.auth.signOut({scope: 'local'}); } catch (e) {}
   me = null; photo = null;
@@ -133,17 +205,18 @@ $('logout').onclick = () => leave('');
 
 $('pwBtn').onclick = async () => {
   const pw = $('np').value;
-  if (pw.length < 6) { $('perr').textContent = '密码至少 6 位'; return; }
+  $('perr').style.color = '';
+  if (pw.length < 6) { $('perr').textContent = t('pwShort'); return; }
   const {error} = await sb.auth.updateUser({password: pw});
   $('perr').style.color = error ? '' : 'var(--ok)';
-  $('perr').textContent = error ? '修改失败：' + error.message : '密码已修改';
+  $('perr').textContent = error ? t('pwFail') + error.message : t('pwOk');
   if (!error) $('np').value = '';
 };
 
 async function stillMine() {
   const {data, error} = await sb.rpc('session_ok');
   if (error) return true;
-  if (data === false) { await leave('此账号已在另一台设备登录，请重新登录'); return false; }
+  if (data === false) { await leave(t('kicked')); return false; }
   return true;
 }
 setInterval(() => { if (me && !busy) stillMine(); }, 30000);
@@ -157,12 +230,12 @@ async function init() {
   if (!(await stillMine())) return;
   const {data: p} = await sb.from('profiles').select('full_name,role,active').eq('id', session.user.id).maybeSingle();
   if (!p || !p.active) {
-    $('who').textContent = '账号未开通';
-    msg('此账号没有员工档案或已停用，请联系管理员。', 'bad');
+    $('who').textContent = t('inactive');
+    msg(t('noProfile'), 'bad');
     setBtns(true); return;
   }
   me = {id: session.user.id, ...p};
-  $('who').textContent = p.full_name + (p.role === 'admin' ? '（管理员）' : '');
+  $('who').textContent = p.full_name + (p.role === 'admin' ? t('adminTag') : '');
   $('date').textContent = today();
   loadToday();
 }
@@ -171,7 +244,10 @@ function setBtns(off) {
   KIND_LIST.forEach(k => {
     const b = $('b_' + k);
     b.disabled = off || !!done[k];
-    b.textContent = KINDS[k] + (done[k] ? ' ✓' : '');
+    b.textContent = '';
+    const a = document.createElement('span'); a.textContent = KZ[k] + (done[k] ? ' ✓' : '');
+    const c = document.createElement('small'); c.textContent = KI[k];
+    b.append(a, c);
   });
 }
 
@@ -188,7 +264,7 @@ async function loadAlerts() {
   card.hidden = !(rows && rows.length);
   (rows || []).forEach(r => {
     const li = document.createElement('li');
-    li.textContent = r.work_date.slice(5) + ' ' + (names[r.user_id] || '员工') + ' ' + (KINDS[r.kind] || r.kind) + ' ' + hm(r.created_at) + ' ' + (FLAGS[r.flag] || r.flag);
+    li.textContent = r.work_date.slice(5) + ' ' + (names[r.user_id] || t('staff')) + ' ' + kindName(r.kind) + ' ' + hm(r.created_at) + ' ' + flagName(r.flag);
     ul.append(li);
   });
 }
@@ -198,7 +274,7 @@ async function loadToday() {
   const {data: rows, error} = await sb.from('attendance')
     .select('user_id,kind,flag,created_at,distance_m,photo_path')
     .eq('work_date', today()).order('created_at');
-  if (error) { msg('读取记录失败：' + error.message, 'bad'); return; }
+  if (error) { msg(t('loadFail') + error.message, 'bad'); return; }
   const {data: ps} = await sb.from('profiles').select('id,full_name');
   const names = Object.fromEntries((ps || []).map(p => [p.id, p.full_name]));
   done = {};
@@ -206,16 +282,16 @@ async function loadToday() {
   setBtns(busy);
   loadAlerts();
   const ul = $('list'); ul.textContent = '';
-  if (!rows.length) { const li = document.createElement('li'); li.textContent = '今天还没有打卡记录'; ul.append(li); return; }
+  if (!rows.length) { const li = document.createElement('li'); li.textContent = t('none'); ul.append(li); return; }
   rows.forEach(r => {
     const li = document.createElement('li');
     const l = document.createElement('span');
-    l.textContent = (names[r.user_id] || '员工') + ' ' + (KINDS[r.kind] || r.kind) + ' ' + hm(r.created_at) + '（' + Math.round(r.distance_m) + ' 米）';
-    if (r.flag) { const t = document.createElement('span'); t.className = 'tag'; t.textContent = FLAGS[r.flag] || r.flag; l.append(t); }
-    const a = document.createElement('a'); a.textContent = '照片'; a.tabIndex = 0;
+    l.textContent = (names[r.user_id] || t('staff')) + ' ' + kindName(r.kind) + ' ' + hm(r.created_at) + t('meters', Math.round(r.distance_m));
+    if (r.flag) { const g = document.createElement('span'); g.className = 'tag'; g.textContent = flagName(r.flag); l.append(g); }
+    const a = document.createElement('a'); a.textContent = t('photoLink'); a.tabIndex = 0;
     a.onclick = async () => {
       const {data, error} = await sb.storage.from('attendance-selfies').createSignedUrl(r.photo_path, 120);
-      if (error) msg('无法打开照片：' + error.message, 'bad'); else window.open(data.signedUrl, '_blank');
+      if (error) msg(t('photoFail') + error.message, 'bad'); else window.open(data.signedUrl, '_blank');
     };
     li.append(l, a); ul.append(li);
   });
@@ -226,7 +302,7 @@ $('file').onchange = async e => {
   try {
     photo = await shrink(f);
     $('prev').src = URL.createObjectURL(photo); $('prev').hidden = false;
-    $('pickTxt').textContent = '重新拍照';
+    $('pickTxt').textContent = t('repick');
   } catch (err) { msg(err.message, 'bad'); }
 };
 
@@ -238,29 +314,29 @@ function shrink(f) {
       const c = document.createElement('canvas');
       c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
       c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-      c.toBlob(b => b ? res(b) : rej(new Error('照片处理失败')), 'image/jpeg', 0.8);
+      c.toBlob(b => b ? res(b) : rej(new Error(t('photoProc'))), 'image/jpeg', 0.8);
     };
-    img.onerror = () => rej(new Error('无法读取这张照片'));
+    img.onerror = () => rej(new Error(t('photoRead')));
     img.src = URL.createObjectURL(f);
   });
 }
 
 function gps() {
   return new Promise((res, rej) => {
-    if (!navigator.geolocation) return rej(new Error('此浏览器不支持定位'));
+    if (!navigator.geolocation) return rej(new Error(t('noGeo')));
     navigator.geolocation.getCurrentPosition(p => res(p.coords),
-      e => rej(new Error(e.code === 1 ? '请在浏览器设置里允许此网站获取位置' : '无法获取定位，请打开手机 GPS 或到空旷处重试')),
+      e => rej(new Error(e.code === 1 ? t('geoDenied') : t('geoFail'))),
       {enableHighAccuracy: true, timeout: 20000, maximumAge: 0});
   });
 }
 
 function friendly(e) {
   const m = (e && e.message) || String(e);
-  if (/Session replaced/i.test(m)) { leave('此账号已在另一台设备登录，请重新登录'); return '账号已在另一台设备登录'; }
-  if (/duplicate key/i.test(m)) return '今天已经打过这个卡了';
-  if (/Invalid attendance type/i.test(m)) return '网页版本过旧，请刷新页面后重试';
-  if (/Outside allowed radius/i.test(m)) return '不在打卡范围内';
-  if (/accuracy too low/i.test(m)) return 'GPS 精度不足，请到空旷处重试';
+  if (/Session replaced/i.test(m)) { leave(t('kicked')); return t('kickedShort'); }
+  if (/duplicate key/i.test(m)) return t('dup');
+  if (/Invalid attendance type/i.test(m)) return t('oldVer');
+  if (/Outside allowed radius/i.test(m)) return t('outside');
+  if (/accuracy too low/i.test(m)) return t('lowAcc');
   return m;
 }
 
@@ -268,21 +344,21 @@ async function punch(kind) {
   if (busy || !me) return;
   busy = true; setBtns(true);
   try {
-    if (!photo) throw new Error('请先拍一张自拍照');
-    msg('正在定位…');
+    if (!photo) throw new Error(t('needPhoto'));
+    msg(t('locating'));
     const c = await gps();
     const {data: chk, error: ce} = await sb.rpc('check_location', {p_lat: c.latitude, p_lng: c.longitude, p_accuracy: c.accuracy});
     if (ce) throw ce;
-    if (!chk.accuracy_ok) throw new Error('GPS 精度不足（约 ' + Math.round(c.accuracy) + ' 米），请到空旷处重试');
-    if (!chk.allowed) throw new Error('不在打卡范围内：距离公司 ' + Math.round(chk.distance_m) + ' 米，允许 ' + chk.radius_m + ' 米内');
-    msg('正在上传照片…');
+    if (!chk.accuracy_ok) throw new Error(t('accBad', Math.round(c.accuracy)));
+    if (!chk.allowed) throw new Error(t('farBad', Math.round(chk.distance_m), chk.radius_m));
+    msg(t('uploading'));
     const path = me.id + '/' + today() + '-' + kind + '-' + Date.now() + '.jpg';
     const {error: ue} = await sb.storage.from('attendance-selfies').upload(path, photo, {contentType: 'image/jpeg'});
     if (ue) throw ue;
     const {error: se} = await sb.rpc('submit_attendance', {p_kind: kind, p_lat: c.latitude, p_lng: c.longitude, p_accuracy: c.accuracy, p_photo_path: path});
     if (se) throw se;
-    msg(KINDS[kind] + '打卡成功，距离公司 ' + Math.round(chk.distance_m) + ' 米', 'ok');
-    photo = null; $('prev').hidden = true; $('file').value = ''; $('pickTxt').textContent = '点此拍自拍照';
+    msg(t('okMsg', kindName(kind), Math.round(chk.distance_m)), 'ok');
+    photo = null; $('prev').hidden = true; $('file').value = ''; $('pickTxt').textContent = t('pick');
   } catch (e) {
     msg(friendly(e), 'bad');
   } finally {
@@ -291,6 +367,7 @@ async function punch(kind) {
 }
 KIND_LIST.forEach(k => { $('b_' + k).onclick = () => punch(k); });
 
+applyLang();
 init();
 </script>
 </body>
